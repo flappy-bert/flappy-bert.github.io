@@ -56,6 +56,9 @@ let pipeCrossed = 0;
 let isBadEnd = false;
 let badEnd = 0;
 let badEndStr = "";
+let isBordersOn = false;
+let table;
+let tableData = [];
 
 let touchStartTime = 0;
 let touchEndTime = 0;
@@ -67,6 +70,9 @@ let collisionSound = new Audio("./sounds/sfx_hit.wav");
 let backgroundMusic = new Audio("./sounds/bgm_mario.mp3");
 backgroundMusic.loop = true; //play music on repeat
 
+
+
+
 window.onload = function() {
     board = document.getElementById("board");
     board.height = boardHeight;
@@ -77,18 +83,55 @@ window.onload = function() {
     for (let i = 0; i < 2; i++) {  //2 is the total number of imgs used in the animation
         let bertImg = new Image();
         bertImg.src = `./img/bertAnimation/flappybert${i}.png`;
+        //bertImg.style.border("5px solid red");
         bertImgs.push(bertImg);
     }
     
     //load images
     topPipeImg = new Image();
     topPipeImg.src = "./img/top-lamp.png";
+    //topPipeImg.style.border = '2px solid black';
     bottomPipeImg = new Image();
-    bottomPipeImg.src = "./img/bottom-coffee-mug-tower.png";    
+    bottomPipeImg.src = "./img/bottom-coffee-mug-tower.png";   
+    //bottomPipeImg.style.border = '5px solid black'; 
     coinImg = new Image();
     coinImg.src = "./img/bert_buck.png";
     
+    // Game LeaderBoards
+    table = document.getElementById("leaderboard");
+    tableData = [];
 
+    // Skip the first row if it's the header
+    console.log(tableData);
+    const headers = Array.from(table.querySelectorAll("thead th")).map(th => th.innerText.trim());
+    const rows = table.querySelectorAll("tbody tr");
+
+    rows.forEach(row => {
+        const cells = row.querySelectorAll("td");
+        const rowData = {};
+
+        cells.forEach((cell, index) => {
+            const key = headers[index].toLowerCase(); // e.g., "Name" → "name"
+            let value = cell.innerText.trim();
+            //rowData[key] = cell.innerText.trim();
+
+            //convert string score to int
+            if (key == "score" || key == "rank") {
+                value = Number(value);
+            }
+
+            rowData[key] = value;
+            
+        });
+        
+        tableData.push(rowData);
+        
+    });
+
+    
+    //}
+
+    console.log(tableData);
 
     requestAnimationFrame(update);
     // create pipes on board ever 1.5 secs
@@ -121,6 +164,13 @@ function update() {
     // bert.y += velocityY;  no limit for the canvas when jumping
     bert.y = Math.max(bert.y + velocityY, -40); //apply gravity to current bert.y, limit the bert.y top of the canvas
     context.drawImage(bertImgs[bertImgsIndex], bert.x, bert.y, bert.width, bert.height);
+    // Add a border around the BERT image
+    if (isBordersOn) {
+        context.strokeStyle = 'blue';  // Border color
+        context.lineWidth = 2;        // Border thickness
+        context.strokeRect(bert.x, bert.y, bert.width, bert.height); // Draw rectangle around image
+    }
+        
 
     // if bert goes under or above the canvas's height , its game over
     if (bert.y > boardHeight || bert.y < -30) {
@@ -132,9 +182,18 @@ function update() {
     //draw pipes
     for (let i = 0; i < pipeArray.length; i++) {
         let pipe = pipeArray[i];
+         
         pipe.x += velocityX;
 
         context.drawImage(pipe.img, pipe.x, pipe.y, pipe.width, pipe.height);
+        // Add a border around the PIPE image
+        if (isBordersOn) {           
+            context.strokeStyle = 'red';  // Border color
+            context.lineWidth = 2;        // Border thickness
+            context.strokeRect(pipe.x, pipe.y, pipe.width, pipe.height); // Draw rectangle around image 
+        }
+        
+
 
         //if bert passed the pipes, increase the score
         if (!pipe.passed && bert.x > pipe.x + pipe.width) {
@@ -225,8 +284,49 @@ function jumpBert(e) {
     //key press is space or arrowUp or "X"
     if (e.code == "Space" || e.code == "ArrowUp" || e.code == "KeyX") {
         
-        jumpLogic();
+        if (!gameOver) {
+            jumpLogic();
+        }
+     }
 
+     if (e.code == "KeyR") {
+        
+        if (gameOver) {
+            //Game music
+            if (backgroundMusic.paused) {
+                backgroundMusic.play();
+            }
+            // play sound
+            wingSound.play();
+
+            // jump
+            velocityY = -6;
+
+            bert.y = bertY;
+            pipeArray = [];
+            score = 0;
+            gameOver = false;
+            badEndCounter = getRandomIntInclusive(1, 100);;
+            //isBordersOn = false;
+            // game original settings
+            gravity = 0.4;
+            velocityY = -6;
+            isNoGapInPipes = false;
+            pipeCrossed = 0;
+            isBadEnd = false;
+            badEnd = 0;
+            badEndStr = "";
+            bert.height = 50;
+            bert.width = 50;
+
+        }
+                
+    }
+
+    if ( e.code == "KeyB") {        
+        if (!gameOver) {
+            isBordersOn = isBordersOn ? false : true;
+        }
      }
 
     
