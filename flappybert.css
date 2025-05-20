@@ -9,3 +9,34 @@ body {
     /* background-image: url("img/flappybertbg.png"); */
     background-image: url("img/kitchen.png");
 }
+
+table {
+    width: 20%;
+    margin: 20px auto;
+    border-collapse: collapse;
+    text-align: center;
+}
+
+table, th, td {
+    border: 1px solid black;
+}
+
+th, td {
+    padding: 10px;
+}
+
+th {
+    background-color: #000000;
+    color: aqua;
+}
+
+td {
+    background-color: #000000;
+    color: white;
+    font-weight: bold;
+}
+
+h2 {
+    text-align: center;
+}
+
