@@ -11,7 +11,7 @@ body {
 }
 
 table {
-    width: 20%;
+    width: auto;
     margin: 20px auto;
     border-collapse: collapse;
     text-align: center;
@@ -38,5 +38,10 @@ td {
 
 h2 {
     text-align: center;
+}
+
+.table-container {
+  justify-content: center;
+  align-items: center;
 }
 
