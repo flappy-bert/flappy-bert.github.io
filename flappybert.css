@@ -45,3 +45,18 @@ h2 {
   align-items: center;
 }
 
+
+.container {
+   background-color: rgb(231, 231, 210);
+   width: 500px;
+   height: 250px;
+}
+
+.item {
+   width: 80px;
+   height: 80px;
+   background-color: green;
+   float: left;
+   margin: 10px;
+ }
+
