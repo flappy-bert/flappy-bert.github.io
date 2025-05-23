@@ -48,14 +48,13 @@ h2 {
 
 .container {
    background-color: rgb(231, 231, 210);
-   width: 500px;
-   height: 250px;
+   width: auto;
+   height: auto;
 }
 
 .item {
-   width: 80px;
-   height: 80px;
-   background-color: green;
+   width: auto;
+   height: auto;
    float: left;
    margin: 10px;
  }
