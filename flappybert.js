@@ -227,18 +227,29 @@ function drawMenuButton(x, y, w, h, text, textColor, bgColor) {
 
 function drawMask(mask, x, y, width, height, color) {
     if (!mask) return;
-    context.fillStyle = color;
+    //context.fillStyle = color;
     let mw = Math.floor(width);
     let mh = Math.floor(height);
-    // Optimization: Draw in chunks or only every few pixels if performance is an issue,
-    // but for debugging 50x50 or 64x512 it should be okay if not done for every pipe simultaneously
+    let imageData = context.createImageData(mw, mh);
+    let data = imageData.data;
+
+    // Parse color to RGB
+    let rgb = color.match(/\d+/g);
+    let r = parseInt(rgb[0]);
+    let g = parseInt(rgb[1]);
+    let b = parseInt(rgb[2]);
+    let a = rgb[3] ? Math.round(parseFloat(rgb[3]) * 255) : 255;
+
     for (let i = 0; i < mask.length; i++) {
         if (mask[i]) {
-            let mx = i % mw;
-            let my = Math.floor(i / mw);
-            context.fillRect(x + mx, y + my, 1, 1);
+            let pixelIdx = i * 4;
+            data[pixelIdx] = r;
+            data[pixelIdx + 1] = g;
+            data[pixelIdx + 2] = b;
+            data[pixelIdx + 3] = a;
         }
     }
+    context.putImageData(imageData, Math.floor(x), Math.floor(y));
 }
 
 //update the animation
