@@ -1,86 +1,298 @@
-// Board
-let board;  //, background img is set in css file
-let boardWidth = 1080; //pixels
-let boardHeight = 640;
-let context; //used for drawing in the canvas
+// Game board configuration
+let board;  // Canvas element (background image set in CSS)
+let boardWidth = 1080;  // Canvas width in pixels
+let boardHeight = 640;  // Canvas height in pixels
+let context;  // 2D drawing context for canvas rendering
 
-// Bird / bert
-let bertWidth = 50;
-let bertHeight = 50;
-let bertX = boardWidth / 8;
-let bertY = boardHeight / 2;
+// Bird (Bert) configuration
+let bertWidth = 50;   // Bird width in pixels
+let bertHeight = 50;  // Bird height in pixels
+let bertX = boardWidth / 8;    // Initial X position
+let bertY = boardHeight / 2;   // Initial Y position (centered vertically)
 
-let bertImgs = [];
-let bertImgsIndex = 0;
+let bertImgs = [];          // Array of animation frames
+let bertImgsIndex = 0;      // Current animation frame index
 
+// Bird game object with dimensions and current position
 let bert = {
-    x : bertX,
-    y : bertY,
-    width : bertWidth,
-    height : bertHeight
-}
+    x: bertX,
+    y: bertY,
+    width: bertWidth,
+    height: bertHeight
+};
 
-//pipes  
-let pipeArray = [];
-let pipeWidth = 64; //pixels - pipe ratio   width/height 384/3072  equivalent to 1/8
-let pipeHeight = 512; 
-let pipeX = boardWidth;
-let pipeY = 0;
+// Pipe configuration (top lamp, bottom coffee mug tower)
+let pipeArray = [];         // Array of active pipes on screen
+let pipeWidth = 64;         // Pipe width in pixels (ratio: width/height = 384/3072 ≈ 1/8)
+let pipeHeight = 512;       // Pipe height in pixels
+let pipeX = boardWidth;     // Initial X position (off-screen right)
+let pipeY = 0;              // Base Y position
 
-let topPipeImg;
-let bottomPipeImg;
+let topPipeImg;             // Image asset for top pipe
+let bottomPipeImg;          // Image asset for bottom pipe
 
-// coin
-let coinWidth = 80;
-let coinHeight = 80;
-let coinImg;
+// Coin configuration (Bert Buck)
+let coinWidth = 80;   // Coin width in pixels
+let coinHeight = 80;  // Coin height in pixels
+let coinImg;          // Coin image asset
 
+// Coin object for score display
 let coin = {
-    x : 10,
-    y : 5,
-    width : coinWidth,
-    height : coinHeight
+    x: 10,
+    y: 5,
+    width: coinWidth,
+    height: coinHeight
+};
+
+// Game physics constants
+let baseVelocityX = -2;  // Base horizontal speed (pipes move left)
+let velocityX = -2;      // Current horizontal speed (modified by turbo mode)
+let velocityY = 0;       // Vertical velocity (controls jump arc)
+let gravity = 0.4;       // Gravity acceleration per frame
+
+// Game state variables
+let gameOver = false;          // True when game ends
+let gameStarted = false;       // True after mode selection
+let gameMode = "";             // Current mode: "classic", "badluck", "turbo", "night", "giant", "zen"
+let score = 0;                 // Player's current score
+let coinArray = [];            // Array of active coins on screen
+let badEndCounter = 10;        // Countdown to bad ending in badluck mode (reaches 0 triggers bad end)
+let isNoGapInPipes = false;    // When true, pipes have no gap between them
+let pipeCrossed = 0;           // Number of pipes successfully passed
+let isBadEnd = false;          // True when a bad ending effect is active
+let badEnd = 0;                // Random identifier for which bad ending occurred
+let badEndStr = "";            // Description of current bad ending effect
+let isBordersOn = false;       // When true, draw debug borders around sprites
+let scoreSubmitted = false;    // Tracks whether current game over score was submitted
+// Pixel-art name entry dialog state
+let playerNameBuffer = "";     // Player's typed name (max 16 chars)
+const MAX_NAME_LEN = 16;
+
+// Frame timing — removed (now using setTimeout for fixed 60fps)
+// Leaderboard data
+let table;        // DOM reference to leaderboard table element
+let tableData = [];  // Parsed leaderboard data from HTML table
+
+// Firebase config — replace with your project's values (see SETUP.md)
+const firebaseConfig = {
+    apiKey: "AIzaSyC-yQdg6OtaxvxDoxqz6tKtFxYY4aID7w8",
+    authDomain: "flappy-bert-leaderboard.firebaseapp.com",
+    projectId: "flappy-bert-leaderboard",
+    storageBucket: "flappy-bert-leaderboard.firebasestorage.app",
+    messagingSenderId: "717739585379",
+    appId: "1:717739585379:web:8fadcda82042f8206e2d56"
+};
+
+// Initialize Firebase (lazy — only when game over triggers)
+let db = null;
+let lowestTop5Score = -Infinity;  // Lowest score among current top 5 (-Inf means any score qualifies)
+
+function initFirebase() {
+    if (!db) {
+        // Only initialize if config is not the placeholder and firebase SDK loaded
+        if (firebaseConfig.apiKey === "REPLACE_WITH_YOUR_API_KEY" || typeof firebase === "undefined") {
+            console.warn("Firebase not configured or SDK not loaded.");
+            const tbody = table.querySelector("#leaderboard-body");
+            tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;">Configure Firebase to enable live leaderboard</td></tr>`;
+            return false;
+        }
+        firebase.initializeApp(firebaseConfig);
+        db = firebase.firestore();
+        // Set up real-time listener for leaderboard — top 5 scores, highest first
+        const colRef = db.collection("leaderboard").orderBy("score", "desc").limit(5);
+        colRef.onSnapshot(snapshot => {
+            const tbody = table.querySelector("#leaderboard-body");
+            tbody.innerHTML = "";
+
+            if (snapshot.empty) {
+                lowestTop5Score = -Infinity;  // No scores — any score qualifies
+                tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;">No scores yet</td></tr>`;
+                return;
+            }
+
+            let i = 0;
+            snapshot.forEach((doc) => {
+                const data = doc.data();
+                // Always update — last doc in descending order is the lowest score
+                lowestTop5Score = data.score ?? -Infinity;
+
+                const rank = i + 1;
+                const modeLabel = (data.mode || "classic").toUpperCase();
+                const row = document.createElement("tr");
+                row.innerHTML = `<td>${rank}</td><td>${data.name}</td><td>${Math.floor(data.score)}</td><td>${modeLabel}</td>`;
+                tbody.appendChild(row);
+                i++;
+            });
+
+        }, err => {
+            console.error("Leaderboard sync error:", err);
+        });
+    }
+    return !!db;
 }
 
-// Game physics
-let baseVelocityX = -2; //pipes moving left speed
-let velocityX = -2; 
-let velocityY = 0;  //bert jump speed
-let gravity = 0.4;  // gravity
+/**
+ * Draws a pixel-art styled name entry dialog box on the canvas.
+ */
+function drawNameDialog() {
+    let bx = boardWidth / 2 - 240;
+    let by = 170;
+    let bw = 480;
+    let bh = 165;
 
-// Game Variables
-let gameOver = false;
-let gameStarted = false;
-let gameMode = ""; // "classic", "badluck", "turbo", "night", "giant", "zen"
-let score = 0;
-let coinArray = [];
-let badEndCounter = 10; //after this reaches 0, a bad end happens
-let isNoGapInPipes = false;  // no space between pipes
-let pipeCrossed = 0;
-let isBadEnd = false;
-let badEnd = 0;
-let badEndStr = "";
-let isBordersOn = false;
-let table;
-let tableData = [];
+    // Dark semi-transparent backdrop
+    context.fillStyle = "rgba(0, 0, 0, 0.7)";
+    context.fillRect(bx - 20, by - 20, bw + 40, bh + 40);
 
+    // Outer border (white pixel-art frame)
+    context.strokeStyle = "#fff";
+    context.lineWidth = 6;
+    context.strokeRect(bx, by, bw, bh);
+
+    // Inner background
+    context.fillStyle = "#1a1a2e";
+    context.fillRect(bx + 4, by + 4, bw - 8, bh - 8);
+
+    // Title text (centered) — big "NEW HIGH SCORE!" with smaller subtitle
+    context.textAlign = "center";
+    context.fillStyle = "#ffd700";
+    context.font = "bold 32px 'Courier New', Courier, monospace";
+    context.fillText("★ NEW HIGH SCORE! ★", boardWidth / 2, by + 38);
+
+    // Subtitle hint
+    context.fillStyle = "#ccc";
+    context.font = "14px 'Courier New', Courier, monospace";
+    context.fillText("Type your name & press Enter", boardWidth / 2, by + 56);
+
+    // Input field (dark rectangle with border) — pushed down for subtitle
+    let inputX = bx + 60;
+    let inputY = by + 72;
+    let inputW = bw - 120;
+    let inputH = 38;
+
+    context.strokeStyle = "#aaa";
+    context.lineWidth = 2;
+    context.strokeRect(inputX, inputY, inputW, inputH);
+
+    // Typed name text — left-aligned inside the input box
+    context.fillStyle = "white";
+    context.font = "bold 24px 'Courier New', Courier, monospace";
+    context.textAlign = "left";
+
+    let cursorX = inputX + 8;
+    if (playerNameBuffer) {
+        context.fillText(playerNameBuffer, cursorX, inputY + 28);
+        let inputTextWidth = context.measureText(playerNameBuffer).width;
+        cursorX += inputTextWidth;
+    }
+
+    // Blinking cursor — right after last character
+    let showCursor = Math.floor(Date.now() / 500) % 2 === 0;
+    if (showCursor && playerNameBuffer.length < MAX_NAME_LEN) {
+        context.fillStyle = "#fff";
+        context.fillRect(cursorX, inputY + 6, 2, inputH - 12);
+    }
+
+    // Hint text — allowed characters (centered below input box)
+    context.textAlign = "center";
+    context.font = "14px 'Courier New', Courier, monospace";
+    context.fillStyle = "#888";
+    context.fillText(`Max ${MAX_NAME_LEN} chars | A-Z 0-9 _ -`, boardWidth / 2, inputY + inputH + 22);
+
+    // Enter/Escape hint (centered at bottom)
+    context.font = "14px 'Courier New', Courier, monospace";
+    context.fillStyle = "#666";
+    context.fillText("Enter to save | Escape to skip", boardWidth / 2, by + bh - 14);
+
+    context.textAlign = "left";
+}
+
+/**
+ * Handles keyboard input for the pixel-art name entry dialog.
+ */
+function handleNameDialogInput(e) {
+    // Letters (A-Z), digits (0-9), and underscore
+    if ((e.code >= "KeyA" && e.code <= "KeyZ") || (e.code >= "Digit0" && e.code <= "Digit9")) {
+        if (playerNameBuffer.length < MAX_NAME_LEN) {
+            playerNameBuffer += e.key.toUpperCase();
+        }
+        return;
+    }
+
+    // Underscore (_) and dash (-)
+    if (e.key === "_" || e.key === "-") {
+        if (playerNameBuffer.length < MAX_NAME_LEN) {
+            playerNameBuffer += e.key;
+        }
+        return;
+    }
+
+    // Backspace: delete last character
+    if (e.code === "Backspace") {
+        playerNameBuffer = playerNameBuffer.slice(0, -1);
+        return;
+    }
+
+    // Enter: submit score (capture name before clearing buffer)
+    if (e.code === "Enter") {
+        let name = playerNameBuffer.trim();
+        playerNameBuffer = "";
+        scoreSubmitted = true;
+        submitScore(name);
+        return;
+    }
+
+    // Escape: skip submission
+    if (e.code === "Escape") {
+        scoreSubmitted = true;
+        playerNameBuffer = "";
+        return;
+    }
+}
+
+/**
+ * Submits the current score to Firestore leaderboard.
+ */
+function submitScore(name) {
+    if (!initFirebase()) return;
+    name = (name || "").trim();
+    if (!name) return;  // Skip empty names
+
+    db.collection("leaderboard").add({
+        name: name,
+        score: Math.floor(score),
+        mode: gameMode,
+        timestamp: firebase.firestore.FieldValue.serverTimestamp()
+    }).then(() => {
+        console.log("Score submitted:", name, Math.floor(score));
+    }).catch(err => {
+        console.error("Failed to submit score:", err);
+    });
+}
+
+// Touch input tracking for mobile tap detection
 let touchStartTime = 0;
 let touchEndTime = 0;
-const TAP_THRESHOLD = 300; // Max time in ms between touchstart and touchend to be considered a tap
+const TAP_THRESHOLD = 300;  // Maximum time in ms between touchstart and touchend to register as a tap
 
-// Game sounds
-let wingSound = new Audio("./sounds/sfx_wing.wav");
-let collisionSound = new Audio("./sounds/sfx_hit.wav");
-let backgroundMusic = new Audio("./sounds/bgm_mario.mp3");
-backgroundMusic.loop = true; //play music on repeat
+// Game sound effects and music
+let wingSound = new Audio("./sounds/sfx_wing.wav");        // Sound when bird jumps
+let collisionSound = new Audio("./sounds/sfx_hit.wav");    // Sound on collision
+let backgroundMusic = new Audio("./sounds/bgm_mario.mp3");  // Background music track
+backgroundMusic.loop = true;  // Loop music continuously during gameplay
 
-// Hitbox Masks
-let bertMasks = [];
-let topPipeMask;
-let bottomPipeMask;
-let isMaskVisible = false;
-let isFallbackActive = false;
+// Pixel-perfect collision detection masks
+let bertMasks = [];      // Array of bitmask arrays for each bird animation frame
+let topPipeMask;         // Bitmask for top pipe image (transparency mask)
+let bottomPipeMask;      // Bitmask for bottom pipe image (transparency mask)
 
+let isFallbackActive = false;  // When true, fallback to AABB collision (CORS/file:// limitation)
+
+/**
+ * Generates a pixel-perfect collision mask from an image.
+ * Reads the alpha channel of each pixel to determine transparency.
+ * Falls back to solid mask (all pixels opaque) if CORS restrictions prevent access.
+ */
 function getMask(img, width, height) {
     try {
         let tempCanvas = document.createElement("canvas");
@@ -90,21 +302,20 @@ function getMask(img, width, height) {
         tempContext.drawImage(img, 0, 0, tempCanvas.width, tempCanvas.height);
         let imageData = tempContext.getImageData(0, 0, tempCanvas.width, tempCanvas.height).data;
         let mask = new Uint8Array(tempCanvas.width * tempCanvas.height);
-        let hasTransparent = false;
         for (let i = 0; i < mask.length; i++) {
+            // Store 1 for opaque pixels, 0 for transparent
             mask[i] = imageData[i * 4 + 3] > 0 ? 1 : 0;
-            if (mask[i] === 0) hasTransparent = true;
         }
-        // If the entire image is solid or we couldn't read transparency, it might be a silent failure or just a solid sprite
         return mask;
     } catch (e) {
         console.error("Could not generate mask (likely CORS or file:// issue):", e);
         isFallbackActive = true;
-        // Return a solid mask as fallback (effectively box collision)
+        // Return solid mask (all pixels treated as opaque) for fallback
         return new Uint8Array(Math.floor(width) * Math.floor(height)).fill(1);
     }
 }
 
+// Updates all bird collision masks when animation frames change or mode resets
 function updateBertMasks() {
     bertMasks = bertImgs.map(img => getMask(img, bert.width, bert.height));
 }
@@ -112,15 +323,17 @@ function updateBertMasks() {
 
 
 
+// Initialize game when page loads
 window.onload = function() {
     board = document.getElementById("board");
     board.height = boardHeight;
     board.width = boardWidth;
-    context = board.getContext("2d"); //used for drawing on the board
+    context = board.getContext("2d");  // Get 2D drawing context for canvas
 
     let imagesLoaded = 0;
-    let totalImages = 5; // 2 bert imgs, topPipe, bottomPipe, coin
+    let totalImages = 5;  // 2 bird frames + top pipe + bottom pipe + coin
 
+    // Called when each image finishes loading (success or error)
     function checkAllImagesLoaded() {
         imagesLoaded++;
         if (imagesLoaded === totalImages) {
@@ -128,26 +341,23 @@ window.onload = function() {
             topPipeMask = getMask(topPipeImg, pipeWidth, pipeHeight);
             bottomPipeMask = getMask(bottomPipeImg, pipeWidth, pipeHeight);
 
-            requestAnimationFrame(update);
-            // create pipes on board ever 1.5 secs
-            setInterval(placePipes, 1500);
-            // create coins every 1 sec
-            setInterval(placeCoins, 1000);
-            //set bert animation to be 1/10 of a sec
-            setInterval(animateBert, 100);
+            requestAnimationFrame(update);  // Start game loop
+            setInterval(placePipes, 1500);   // Spawn pipes every 1.5 seconds
+            setInterval(placeCoins, 1000);   // Spawn coins every 1 second
+            setInterval(animateBert, 100);   // Update bird animation every 100ms
         }
     }
 
-    //load bert img animation
-    for (let i = 0; i < 2; i++) {  //2 is the total number of imgs used in the animation
+    // Load bird animation frames (flappybert0.png, flappybert1.png)
+    for (let i = 0; i < 2; i++) {
         let bertImg = new Image();
         bertImg.onload = checkAllImagesLoaded;
         bertImg.onerror = checkAllImagesLoaded;
         bertImg.src = `./img/bertAnimation/flappybert${i}.png`;
         bertImgs.push(bertImg);
     }
-    
-    //load images
+
+    // Load pipe images
     topPipeImg = new Image();
     topPipeImg.onload = checkAllImagesLoaded;
     topPipeImg.onerror = checkAllImagesLoaded;
@@ -156,128 +366,71 @@ window.onload = function() {
     bottomPipeImg = new Image();
     bottomPipeImg.onload = checkAllImagesLoaded;
     bottomPipeImg.onerror = checkAllImagesLoaded;
-    bottomPipeImg.src = "./img/bottom-coffee-mug-tower.png";   
+    bottomPipeImg.src = "./img/bottom-coffee-mug-tower.png";
 
+    // Load coin image
     coinImg = new Image();
     coinImg.onload = checkAllImagesLoaded;
     coinImg.onerror = checkAllImagesLoaded;
     coinImg.src = "./img/bert_buck.png";
-    
-    // Game LeaderBoards
+
+    // Leaderboard: get table reference; Firestore will populate it if configured
     table = document.getElementById("leaderboard");
-    tableData = [];
+    try { initFirebase(); } catch(err) { console.warn("Firebase init deferred:", err.message); }
 
-    // Skip the first row if it's the header
-    console.log(tableData);
-    const headers = Array.from(table.querySelectorAll("thead th")).map(th => th.innerText.trim());
-    const rows = table.querySelectorAll("tbody tr");
+    // Input event listeners
+    document.addEventListener("keydown", jumpBert);  // Keyboard controls
 
-    rows.forEach(row => {
-        const cells = row.querySelectorAll("td");
-        const rowData = {};
-
-        cells.forEach((cell, index) => {
-            const key = headers[index].toLowerCase(); // e.g., "Name" → "name"
-            let value = cell.innerText.trim();
-            //rowData[key] = cell.innerText.trim();
-
-            //convert string score to int
-            if (key == "score" || key == "rank") {
-                value = Number(value);
-            }
-
-            rowData[key] = value;
-            
-        });
-        
-        tableData.push(rowData);
-        
-    });
-
-    
-    //}
-
-    console.log(tableData);
-
-    // event listener for jumping using key
-    document.addEventListener("keydown", jumpBert);
-    // Resize canvas when the window is resized
-    //window.addEventListener('resize', resizeCanvas);
-
+    // Touch controls for mobile (tap detection)
     document.addEventListener("touchstart", touchStart);
-    document.addEventListener('touchend', touchEnd);
+    document.addEventListener("touchend", touchEnd);
+};
 
-}
-
+// Draws a button with border and filled background for menu
 function drawMenuButton(x, y, w, h, text, textColor, bgColor) {
-    // Outer border
+    // Outer white border
     context.fillStyle = "white";
     context.fillRect(x, y, w, h);
-    
-    // Inner box
+
+    // Inner colored box
     context.fillStyle = bgColor;
     context.fillRect(x + 4, y + 4, w - 8, h - 8);
-    
-    // Text
+
+    // Centered text label
     context.fillStyle = textColor;
     context.font = "bold 25px 'Courier New', Courier, monospace";
     context.textAlign = "center";
     context.fillText(text, x + w / 2, y + h / 2 + 10);
 }
 
-function drawMask(mask, x, y, width, height, color) {
-    if (!mask) return;
-    //context.fillStyle = color;
-    let mw = Math.floor(width);
-    let mh = Math.floor(height);
-    let imageData = context.createImageData(mw, mh);
-    let data = imageData.data;
 
-    // Parse color to RGB
-    let rgb = color.match(/\d+/g);
-    let r = parseInt(rgb[0]);
-    let g = parseInt(rgb[1]);
-    let b = parseInt(rgb[2]);
-    let a = rgb[3] ? Math.round(parseFloat(rgb[3]) * 255) : 255;
-
-    for (let i = 0; i < mask.length; i++) {
-        if (mask[i]) {
-            let pixelIdx = i * 4;
-            data[pixelIdx] = r;
-            data[pixelIdx + 1] = g;
-            data[pixelIdx + 2] = b;
-            data[pixelIdx + 3] = a;
-        }
-    }
-    context.putImageData(imageData, Math.floor(x), Math.floor(y));
-}
-
-//update the animation
+/**
+ * Main game loop - updates and renders all game elements.
+ * Runs at fixed 60fps using setTimeout for consistent physics regardless of display refresh rate.
+ */
 function update() {
-    requestAnimationFrame(update);
+    // Schedule next frame FIRST so menu and game-over screens keep updating
+    setTimeout(update, 16);
 
-    // Draw Welcome Screen
+    // Show welcome screen before game starts
     if (!gameStarted) {
-        // ... (welcome screen code)
         context.clearRect(0, 0, board.width, board.height);
-        
-        // Draw background shadow/overlay
+
+        // Dark overlay background
         context.fillStyle = "rgba(0, 0, 0, 0.4)";
         context.fillRect(0, 0, boardWidth, boardHeight);
 
-        // Title with "Pixel" shadow
+        // Draw "FLAPPY BERT" title with shadow effect
         context.font = "bold 60px 'Courier New', Courier, monospace";
         context.textAlign = "center";
-        
-        // Shadow layer
-        context.fillStyle = "#000000";
+
+        context.fillStyle = "#000000";  // Shadow layer
         context.fillText("FLAPPY BERT", boardWidth / 2 + 4, 104);
-        
-        // Main Title layer
-        context.fillStyle = "aqua";
+
+        context.fillStyle = "aqua";  // Main title
         context.fillText("FLAPPY BERT", boardWidth / 2, 100);
-        
-        // Mode Selection Grid (smaller buttons to fit)
+
+        // Mode selection menu buttons
         let startY = 160;
         let spacing = 65;
         drawMenuButton(boardWidth / 2 - 250, startY, 500, 50, "1: CLASSIC", "white", "#000000");
@@ -290,125 +443,104 @@ function update() {
         context.font = "18px 'Courier New', Courier, monospace";
         context.fillStyle = "palegoldenrod";
         context.fillText("CHOOSE YOUR CHALLENGE", boardWidth / 2, 570);
-        
-        context.textAlign = "left"; // Reset for other text
+
+        context.textAlign = "left";  // Reset alignment
         return;
     }
 
-    //Stop updating screen if its game over
-    if (gameOver) {
-        return;
-    }
+    // Skip all physics and rendering during game over (handled below)
+    if (!gameOver) {
 
-    // Turbo Mode Speed Increment
+        // Turbo mode: increase speed each frame
     if (gameMode === "turbo") {
         velocityX -= 0.001;
     }
 
-    //clear previous frame
+    // Clear previous frame and apply gravity
     context.clearRect(0, 0, board.width, board.height);
-
-    //draw bert
-    velocityY += gravity; //implement gravity
-    // bert.y += velocityY;  no limit for the canvas when jumping
-    bert.y = Math.max(bert.y + velocityY, -40); //apply gravity to current bert.y, limit the bert.y top of the canvas
+    velocityY += gravity;
+    bert.y = Math.max(bert.y + velocityY, -40);
     context.drawImage(bertImgs[bertImgsIndex], bert.x, bert.y, bert.width, bert.height);
-    
-    // Draw Mask Visualization
-    if (isMaskVisible) {
-        drawMask(bertMasks[bertImgsIndex], bert.x, bert.y, bert.width, bert.height, "rgba(0, 255, 0, 0.5)");
-    }
 
-    // Add a border around the BERT image
+    // Debug border around bird
     if (isBordersOn) {
-        context.strokeStyle = 'blue';  // Border color
-        context.lineWidth = 2;        // Border thickness
-        context.strokeRect(bert.x, bert.y, bert.width, bert.height); // Draw rectangle around image
+        context.strokeStyle = 'blue';
+        context.lineWidth = 2;
+        context.strokeRect(bert.x, bert.y, bert.width, bert.height);
     }
-        
 
-    // if bert goes under or above the canvas's height , its game over
+    // Game over conditions: hit bottom, too high (non-zen), or score < -20
     if (bert.y > boardHeight || (bert.y < -30 && gameMode !== "zen")) {
         gameOver = true;
     } else if (score < -20) {
         gameOver = true;
     }
 
-    //draw pipes
+    // Update and draw pipes
     for (let i = 0; i < pipeArray.length; i++) {
         let pipe = pipeArray[i];
-         
+
         pipe.x += velocityX;
 
         context.drawImage(pipe.img, pipe.x, pipe.y, pipe.width, pipe.height);
-        
-        // Draw Mask Visualization
-        if (isMaskVisible) {
-            let pMask = (pipe.img === topPipeImg) ? topPipeMask : bottomPipeMask;
-            drawMask(pMask, pipe.x, pipe.y, pipe.width, pipe.height, "rgba(0, 255, 0, 0.5)");
+
+        // Debug border around pipes
+        if (isBordersOn) {
+            context.strokeStyle = 'red';
+            context.lineWidth = 2;
+            context.strokeRect(pipe.x, pipe.y, pipe.width, pipe.height);
         }
 
-        // Add a border around the PIPE image
-        if (isBordersOn) {           
-            context.strokeStyle = 'red';  // Border color
-            context.lineWidth = 2;        // Border thickness
-            context.strokeRect(pipe.x, pipe.y, pipe.width, pipe.height); // Draw rectangle around image 
-        }
-        
-
-
-        //if bert passed the pipes, increase the score
+        // Increment score when bird passes pipe center
         if (!pipe.passed && bert.x > pipe.x + pipe.width) {
-            score += 0.5;  //since it passes 2 pipes at a time it would be 1 point per pass
+            score += 0.5;
             pipe.passed = true;
             pipeCrossed += 0.5;
         }
 
-        //detect collision and end game
+        // End game on collision (not in zen mode)
         if (gameMode !== "zen" && detectCollision(bert, pipe)) {
             collisionSound.play();
             gameOver = true;
         }
     }
 
-    // Draw and handle Coins
+    // Update and draw coins
     for (let i = 0; i < coinArray.length; i++) {
         let coinObj = coinArray[i];
         coinObj.x += velocityX;
 
         if (!coinObj.collected) {
-            // Spin Animation: oscillate the width using sin
+            // Spin animation using sine wave
             let spinTime = Date.now() / 150;
             let spinScale = Math.sin(spinTime);
             let drawWidth = coinObj.width * Math.abs(spinScale);
             let drawX = coinObj.x + (coinObj.width - drawWidth) / 2;
 
             context.drawImage(coinImg, drawX, coinObj.y, drawWidth, coinObj.height);
-            
-            // Simple AABB for coins (doesn't need pixel-perfect)
+
+            // AABB collision with coin
             if (bert.x < coinObj.x + coinObj.width &&
                 bert.x + bert.width > coinObj.x &&
                 bert.y < coinObj.y + coinObj.height &&
                 bert.y + bert.height > coinObj.y) {
-                
+
                 coinObj.collected = true;
                 score += 1;
-                // Add a sound if possible or just visual feedback
             }
         }
     }
 
-    //clear coins off screen
+    // Remove off-screen coins and pipes
     while (coinArray.length > 0 && coinArray[0].x < -100) {
         coinArray.shift();
     }
 
-    //clear pipes passed that are off the canvas
-    while (pipeArray.length > 0 && pipeArray[0].x < - pipeWidth) {
-        pipeArray.shift(); //removes first element from the array
+    while (pipeArray.length > 0 && pipeArray[0].x < -pipeWidth) {
+        pipeArray.shift();
     }
 
-    // Night Mode Flashlight Effect
+    // Night mode: flashlight effect revealing bird
     if (gameMode === "night") {
         context.save();
         context.globalCompositeOperation = 'destination-in';
@@ -417,126 +549,194 @@ function update() {
             bert.x + bert.width / 2, bert.y + bert.height / 2, 220
         );
         gradient.addColorStop(0, 'rgba(0, 0, 0, 1)');
-        gradient.addColorStop(1, 'rgba(0, 0, 0, 0.1)'); // Allow a tiny bit of ambient light
+        gradient.addColorStop(1, 'rgba(0, 0, 0, 0.1)');
         context.fillStyle = gradient;
         context.fillRect(0, 0, boardWidth, boardHeight);
         context.restore();
 
-        // Dark background overlay for everything else
+        // Darken everything else
         context.save();
         context.globalCompositeOperation = 'destination-over';
-        context.fillStyle = "rgba(0, 0, 0, 0.9)"; // 90% dark instead of 100%
+        context.fillStyle = "rgba(0, 0, 0, 0.9)";
         context.fillRect(0, 0, boardWidth, boardHeight);
         context.restore();
     }
 
-    // draw coin icon for score
+    // Draw score display (coin icon + number)
     context.drawImage(coinImg, 10, 10, 80, 80);
-    
-    //draw Score next to coin
-    context.fillStyle = "white";  //font color
-    context.font = "bold 50px sans-serif"; // Slightly larger and bold
-    context.textAlign = "left";
-    context.fillText(Math.floor(score), 100, 65); 
 
-    // draw Passed counter
+    context.fillStyle = "white";
+    context.font = "bold 50px sans-serif";
+    context.textAlign = "left";
+    context.fillText(Math.floor(score), 100, 65);
+
+    // Draw pipes passed counter (not in zen mode)
     if (gameMode !== "zen") {
-        context.font = "30px sans-serif"; // Smaller font for passed
+        context.font = "30px sans-serif";
         context.fillText(`Passed: ${Math.floor(pipeCrossed)}`, 15, 120);
     }
-    
+
+    // Mode-specific HUD
     if (gameMode === "badluck") {
         context.font = "35px sans-serif";
-        context.fillText(`Luck ${badEndCounter}%`, 805, 63); 
-        context.fillText(`Bad Luck: ${badEndStr}`, 10, 630); 
+        context.fillText(`Luck: ${badEndCounter}%`, 805, 63);
+        context.fillStyle = "white";
+        context.font = "24px sans-serif";
+        context.fillText(`Bad Luck: ${badEndStr}`, 10, 630);
     }
-    
+
     if (gameMode === "turbo") {
         context.font = "20px sans-serif";
         context.fillText(`Speed: ${Math.abs(velocityX).toFixed(2)}`, 105, 90);
     }
-    
+
+    // Fallback collision warning
     if (isFallbackActive) {
         context.fillStyle = "red";
         context.font = "20px sans-serif";
         context.fillText("Note: Using box collision (CORS/File limit)", 10, 600);
     }
-    
-    // game over message
+
+    } // end if (!gameOver)
+
+    // Game over rendering — redraws entire screen each frame so dialog updates with typed name
     if (gameOver) {
         backgroundMusic.pause();
-        backgroundMusic.currentTime = 0;  //reset music from the start
-        context.fillText("GAME OVER", 360, 65); //variable with text, position on canvas x, y
-    }
+        backgroundMusic.currentTime = 0;
+
+        context.clearRect(0, 0, board.width, board.height);
+
+        context.fillStyle = "white";
+        context.font = "bold 60px sans-serif";
+        context.fillText("GAME OVER", boardWidth / 2 - 120, 100);
+
+        // Check if score qualifies for leaderboard (beats at least one top 5 score)
+        const currentScore = Math.floor(score);
+        const qualifiesForLeaderboard = db === null || lowestTop5Score === -Infinity || currentScore > lowestTop5Score;
+
+        // If score doesn't qualify, skip name entry entirely so R/M keys work
+        if (!qualifiesForLeaderboard) {
+            scoreSubmitted = true;
+        }
+
+        if (!scoreSubmitted && qualifiesForLeaderboard) {
+            drawNameDialog();
+        } else {
+            // Show instructions or message about score not qualifying
+            context.font = "bold 24px 'Courier New', Courier, monospace";
+            context.fillStyle = "#aaa";
+            context.textAlign = "center";
+
+            if (scoreSubmitted) {
+                context.fillText("Press R to play again | M for menu", boardWidth / 2, 160);
+            } else {
+                context.fillStyle = "#f88";
+                context.font = "bold 20px 'Courier New', Courier, monospace";
+                context.fillText(`Score ${currentScore} didn't make the top 5!`, boardWidth / 2, 155);
+                if (lowestTop5Score !== -Infinity) {
+                    context.fillStyle = "#aaa";
+                    context.font = "bold 24px 'Courier New', Courier, monospace";
+                    context.fillText(`You need ${Math.floor(lowestTop5Score) + 1} or more to qualify.`, boardWidth / 2, 180);
+                } else {
+                    context.fillStyle = "#aaa";
+                    context.font = "bold 24px 'Courier New', Courier, monospace";
+                    context.fillText("Press R to play again | M for menu", boardWidth / 2, 180);
+                }
+            }
+
+            context.textAlign = "left";
+        }
+
+    } // end if (gameOver)
 }
 
+// Cycle through bird animation frames (0, 1, 0, 1...)
 function animateBert() {
-    bertImgsIndex++; //increment to next frame
-    bertImgsIndex %= bertImgs.length; // circle back with modulus, max frame is 1
-    // // 0 1 0 1 0 1....
+    bertImgsIndex++;
+    bertImgsIndex %= bertImgs.length;  // Modulo cycles between 0 and 1
 }
 
 
+/**
+ * Spawns a new pair of pipes (top and bottom) with randomized vertical position.
+ * Called by setInterval every 1.5 seconds during active gameplay.
+ */
 function placePipes() {
-    //Stop if its game over or Zen mode
     if (gameOver || gameMode === "zen") {
-        return;
+        return;  // Don't spawn in zen mode or after game over
     }
 
     let randomPipeY = pipeY - pipeHeight/4 - (Math.random() * pipeHeight / 2);
-    let openingSpace = board.height/4; //space between top and bottom pipes
+    let openingSpace = board.height/4;  // Vertical gap between pipes
 
     let topPipe = {
-        img : topPipeImg,
-        x : pipeX,
-        y : randomPipeY,
-        width : pipeWidth,
-        height : pipeHeight,
-        passed : false
-    }
+        img: topPipeImg,
+        x: pipeX,
+        y: randomPipeY,
+        width: pipeWidth,
+        height: pipeHeight,
+        passed: false
+    };
 
     pipeArray.push(topPipe);
 
     if (isNoGapInPipes) {
-        openingSpace = 1;
+        openingSpace = 1;  // No gap for badluck mode effect
     }
 
     let bottomPipe = {
-        img : bottomPipeImg,
-        x : pipeX,
-        y : randomPipeY + pipeHeight + openingSpace,
-        width : pipeWidth,
-        height : pipeHeight,
-        passed : false
-    }
+        img: bottomPipeImg,
+        x: pipeX,
+        y: randomPipeY + pipeHeight + openingSpace,
+        width: pipeWidth,
+        height: pipeHeight,
+        passed: false
+    };
 
     pipeArray.push(bottomPipe);
-
 }
 
+/**
+ * Spawns a coin at random vertical position.
+ * Called by setInterval every 1 second.
+ * Only active in "zen" and "classic" modes with 60% spawn rate in classic.
+ */
 function placeCoins() {
     if (gameOver) return;
-    
-    // Coins spawn in Zen and Classic modes
+
+    // Coins only spawn in zen and classic modes
     if (gameMode !== "zen" && gameMode !== "classic") return;
-    
-    // Increased frequency for classic mode (was 0.7 skip)
+
+    // Reduced frequency in classic mode (40% skip = 60% spawn rate)
     if (gameMode === "classic" && Math.random() < 0.4) return;
 
     let randomCoinY = getRandomIntInclusive(100, boardHeight - 100);
     let newCoin = {
         x: boardWidth,
         y: randomCoinY,
-        width: 60,   // Increased from 40
-        height: 60,  // Increased from 40
+        width: 60,   // Coin display size
+        height: 60,
         collected: false
     };
     coinArray.push(newCoin);
 }
 
-// param e , is the key press event
+/**
+ * Handles keyboard input for game controls.
+ */
 function jumpBert(e) {
+    // Game over name dialog — consume ALL keys only if score qualifies for leaderboard and hasn't been submitted yet
+    if (gameOver && !scoreSubmitted) {
+        const currentScore = Math.floor(score);
+        const qualifiesForLeaderboard = db === null || lowestTop5Score === -Infinity || currentScore > lowestTop5Score;
+        if (!qualifiesForLeaderboard) {
+            scoreSubmitted = true;  // Skip name entry, let R/M keys through
+        } else {
+            return handleNameDialogInput(e);
+        }
+    }
 
+    // Mode selection before game starts
     if (!gameStarted) {
         if (e.code === "Digit1" || e.code === "Numpad1") {
             gameMode = "classic";
@@ -566,51 +766,49 @@ function jumpBert(e) {
         return;
     }
 
-    //key press is space or arrowUp or "X"
-    if (e.code == "Space" || e.code == "ArrowUp" || e.code == "KeyX") {
-        
+    // Jump controls
+    if (e.code === "Space" || e.code === "ArrowUp" || e.code === "KeyX") {
         if (!gameOver) {
             jumpLogic();
         }
-     }
+    }
 
-     if (e.code == "KeyR") {
-        
+    // Reset game after death
+    if (e.code === "KeyR") {
         if (gameOver) {
             resetGame();
         }
-                
     }
 
-    if (e.code == "KeyM") {
-        // Return to Menu
+    // Return to main menu
+    if (e.code === "KeyM") {
         gameStarted = false;
         gameOver = false;
         backgroundMusic.pause();
         backgroundMusic.currentTime = 0;
-        // Reset basic stats so the screen looks clean if we go back
         score = 0;
         pipeArray = [];
         bert.y = bertY;
         velocityY = 0;
+        playerNameBuffer = "";
     }
 
-    if ( e.code == "KeyB") {        
+    // Toggle debug borders
+    if (e.code === "KeyB") {
         if (!gameOver) {
-            isBordersOn = isBordersOn ? false : true;
+            isBordersOn = !isBordersOn;
         }
-     }
-
-    if (e.code == "KeyV") {
-        isMaskVisible = !isMaskVisible;
     }
 
-    
 }
 
-//create 2 rectangles comparing the positions and detecting the collision between the bert and the pipe
+/**
+ * Detects collision between bird and pipe using pixel-perfect masking.
+ * First performs AABB bounding box check for early exit, then checks
+ * overlapping pixels for true transparency overlap.
+ */
 function detectCollision(bertRect, pipeRect) {
-    // 1. AABB (Axis-Aligned Bounding Box) check
+    // 1. AABB (Axis-Aligned Bounding Box) check - fast rejection
     let overlap = bertRect.x < pipeRect.x + pipeRect.width &&
                   bertRect.x + bertRect.width > pipeRect.x &&
                   bertRect.y < pipeRect.y + pipeRect.height &&
@@ -618,30 +816,27 @@ function detectCollision(bertRect, pipeRect) {
 
     if (!overlap) return false;
 
-    // 2. Pixel-perfect collision check
-    // Get the current mask for bert and the pipe
+    // 2. Pixel-perfect collision using masks
     let bertMask = bertMasks[bertImgsIndex];
     let pipeMask = (pipeRect.img === topPipeImg) ? topPipeMask : bottomPipeMask;
 
-    // Fallback if masks aren't ready for some reason
-    if (!bertMask || !pipeMask) return true;
+    if (!bertMask || !pipeMask) return true;  // Fallback: assume collision
 
-    // Find the overlapping rectangle
+    // Find overlapping rectangle
     let xOverlap = Math.max(bertRect.x, pipeRect.x);
     let yOverlap = Math.max(bertRect.y, pipeRect.y);
     let wOverlap = Math.min(bertRect.x + bertRect.width, pipeRect.x + pipeRect.width) - xOverlap;
     let hOverlap = Math.min(bertRect.y + bertRect.height, pipeRect.y + pipeRect.height) - yOverlap;
 
-    // Check pixels within the overlapping area
+    // Check each pixel in overlap region
     for (let y = 0; y < hOverlap; y++) {
         for (let x = 0; x < wOverlap; x++) {
-            // Calculate relative coordinates in both sprites
             let bX = Math.floor(xOverlap + x - bertRect.x);
             let bY = Math.floor(yOverlap + y - bertRect.y);
             let pX = Math.floor(xOverlap + x - pipeRect.x);
             let pY = Math.floor(yOverlap + y - pipeRect.y);
 
-            // If both pixels are non-transparent, we have a collision
+            // Collision if both pixels are non-transparent
             if (bertMask[bY * Math.floor(bertRect.width) + bX] && 
                 pipeMask[pY * Math.floor(pipeRect.width) + pX]) {
                 return true;
@@ -652,39 +847,52 @@ function detectCollision(bertRect, pipeRect) {
     return false;
 }
 
+/**
+ * Returns a random integer between min and max (inclusive).
+ * @param {number} min - Minimum value
+ * @param {number} max - Maximum value
+ * @returns {number} Random integer in range [min, max]
+ */
 function getRandomIntInclusive(min, max) {
     const minCeiled = Math.ceil(min);
     const maxFloored = Math.floor(max);
-    return Math.floor(Math.random() * (maxFloored - minCeiled + 1) + minCeiled); // The maximum is inclusive and the minimum is inclusive
+    return Math.floor(Math.random() * (maxFloored - minCeiled + 1)) + minCeiled;
 }
 
- // Function to resize the canvas
- function resizeCanvas() {
-    let boardCanvas = context.getImageData(0,0,boardWidth, boardHeight); //to grab the whole canvas
-    canvas.width = window.innerWidth;  // Set canvas width to window's width
-    canvas.height = window.innerHeight; // Set canvas height to window's height
-    context.putImageData(boardCanvas, 0, 0); //to redraw it at the new scale.  // Redraw the content after resizing
+// Resize canvas when window changes (currently disabled - uncomment to enable)
+/*
+function resizeCanvas() {
+    let boardCanvas = context.getImageData(0, 0, boardWidth, boardHeight);
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    context.putImageData(boardCanvas, 0, 0);
 }
+*/
 
+/**
+ * Resets game state for a new round or after game over.
+ */
 function resetGame() {
-    //Game music
+
+    // Start background music if not playing
     if (backgroundMusic.paused) {
         backgroundMusic.play();
     }
-    // play sound
-    wingSound.play();
+    wingSound.play();  // Play jump sound
 
-    // jump
-    velocityY = -6;
+    velocityY = -6;  // Initial upward velocity for first jump
 
     bert.y = bertY;
     pipeArray = [];
     coinArray = [];
     score = 0;
     gameOver = false;
+    scoreSubmitted = false;
+    playerNameBuffer = "";
+    // Badluck mode: generate random luck counter (1-100)
     badEndCounter = (gameMode === "badluck") ? getRandomIntInclusive(1, 100) : 100;
-    
-    // game original settings
+
+    // Reset physics and gameplay settings
     gravity = 0.4;
     velocityX = baseVelocityX;
     isNoGapInPipes = false;
@@ -692,7 +900,8 @@ function resetGame() {
     isBadEnd = false;
     badEnd = 0;
     badEndStr = "";
-    
+
+    // Giant mode: double bird size
     if (gameMode === "giant") {
         bert.height = 100;
         bert.width = 100;
@@ -700,96 +909,96 @@ function resetGame() {
         bert.height = 50;
         bert.width = 50;
     }
-    
+
     updateBertMasks();
 }
 
+/**
+ * Handles touch start event for mobile tap detection.
+ * Begins game in classic mode if not yet started.
+ */
 function touchStart(event) {
     if (!gameStarted) {
-        // For mobile, maybe just default to classic if they tap the screen
         gameMode = "classic";
         gameStarted = true;
         resetGame();
         return;
     }
-    touchStartTime = new Date().getTime(); // Store the time when touch starts
-    event.preventDefault(); // Prevent default behavior (like scrolling)
+    touchStartTime = new Date().getTime();  // Record start time
+    event.preventDefault();  // Prevent scrolling/zooming
 }
 
+/**
+ * Handles touch end event for mobile tap detection.
+ * Triggers jump if touch duration is below TAP_THRESHOLD (300ms).
+ */
 function touchEnd(event) {
     if (!gameStarted) return;
-    touchEndTime = new Date().getTime(); // Store the time when touch ends
+    touchEndTime = new Date().getTime();
 
     const touchDuration = touchEndTime - touchStartTime;
 
-    // If the touch duration is below the threshold (e.g., 300ms), consider it a tap
+    // Register as tap if duration < 300ms
     if (touchDuration <= TAP_THRESHOLD) {
-        console.log("Tap detected anywhere on the screen!");
         jumpLogic();
     }
 
-    event.preventDefault(); // Prevent default behavior on touch end
+    event.preventDefault();
 }
 
 
+/**
+ * Implements jump logic for bird and handles game mode effects.
+ * Called on key press (space/arrowUp/X) or mobile tap.
+ */
 function jumpLogic() {
-    
-        // Game music
-        if (backgroundMusic.paused) {
-            backgroundMusic.play();
+    // Ensure music is playing
+    if (backgroundMusic.paused) {
+        backgroundMusic.play();
+    }
+    wingSound.play();  // Play sound effect
+
+    velocityY = -6;  // Apply upward impulse
+
+    // Reset game if over
+    if (gameOver) {
+        resetGame();
+    } else if (gameMode === "badluck") {
+        badEndCounter -= 1;  // Reduce luck counter each jump
+    }
+
+    // Trigger bad ending if luck runs out
+    if (gameMode === "badluck" && badEndCounter < 1 && !isBadEnd) {
+        badEnd = getRandomIntInclusive(1, 5);
+        isBadEnd = true;
+    }
+
+    // Apply selected bad ending effect
+    if (isBadEnd && gameMode === "badluck") {
+        switch(badEnd) {
+            case 1:
+                gravity = 0;           // No gravity
+                badEndStr = "No gravity";
+                break;
+            case 2:
+                velocityY = 10;        // Can't jump (falling fast)
+                badEndStr = "Can't jump";
+                break;
+            case 3:
+                isNoGapInPipes = true; // No space between pipes
+                badEndStr = "No gap";
+                break;
+            case 4:
+                score -= 2;            // Negative score penalty
+                badEndStr = "Score -2";
+                break;
+            case 5:
+                let newSize = getRandomIntInclusive(45, 100);
+                bert.height = newSize;
+                bert.width = newSize;
+                updateBertMasks();
+                badEndStr = "Random size";
+                break;
         }
-        
-        // play sound
-        wingSound.play();
-
-        // jump
-        velocityY = -6;
-
-        // reset game
-        if (gameOver) {
-            resetGame();
-        } else if (gameMode === "badluck") {
-            badEndCounter -= 1;
-        }
-
-
-        // ran out of luck, randomly select bad ending
-        if (gameMode === "badluck" && badEndCounter < 1 && !isBadEnd) {
-            badEnd = getRandomIntInclusive(1,5);
-            isBadEnd = true;
-        }
-
-        if (isBadEnd && gameMode === "badluck") {
-
-            switch(badEnd) {
-                case 1:
-                    // no gravity
-                    gravity = 0;
-                    badEndStr = "No gravity.";
-                    break;
-                case 2:
-                    // jumping doesnt work anymore
-                    velocityY = 10;
-                    badEndStr = "No jump.";
-                    break;
-                case 3:
-                    // no space between pipes
-                    isNoGapInPipes = true;
-                    badEndStr = "No gap.";
-                    break;
-                case 4:
-                    // negative score
-                    score -= 2;
-                    badEndStr = "Neg score.";
-                    break;
-                case 5:
-                    // bert changes to random size
-                    let newSize = getRandomIntInclusive(45, 100);
-                    bert.height = newSize;
-                    bert.width = newSize;
-                    updateBertMasks();
-                    badEndStr = "Random size.";
-                    break;
-            }
-        }
+    }
 }
