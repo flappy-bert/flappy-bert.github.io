@@ -5,6 +5,9 @@
         <meta name="viewport", content="width=device-width, initial-scale=1.0">
         <title>Flappy Bert</title>
         <link rel="stylesheet" href="flappybert.css">
+        <!-- Firebase SDK (compat mode) -->
+        <script src="https://www.gstatic.com/firebasejs/11.9.0/firebase-app-compat.js"></script>
+        <script src="https://www.gstatic.com/firebasejs/11.9.0/firebase-firestore-compat.js"></script>
         <script src="flappybert.js"></script>
     </head>
     <body>
@@ -23,24 +26,11 @@
                                     <th>Rank</th>
                                     <th>Name</th>
                                     <th>Score</th>
+                                    <th>Mode</th>
                                 </tr>
                             </thead>
-                            <tbody>
-                                <tr>
-                                    <td>1</td>
-                                    <td>BORT</td>
-                                    <td>31</td>
-                                </tr>
-                                <tr>
-                                    <td>2</td>
-                                    <td>BURT</td>
-                                    <td>19</td>
-                                </tr>
-                                <tr>
-                                    <td>3</td>
-                                    <td>TPS</td>
-                                    <td>14</td>
-                                </tr>                
+                            <tbody id="leaderboard-body">
+                                <tr><td colspan="4" style="text-align:center;">Loading...</td></tr>                
                             </tbody>
                         </table>
                 </div>
@@ -53,9 +43,8 @@
                   <li>Jump = "Spacebar" , "X", "ArrowUp"</li>
                   <li>Reset Game = "R" </li>
                   <li>Back to Menu = "M" </li>
-                  <li>Hitbox borders = "B"</li>
-                  <li>Visual Hitbox Mask = "V"</li>
-                </ul>  
+                   <li>Hitbox borders = "B"</li>
+                 </ul>
            </div>
     </div>
  </body>
