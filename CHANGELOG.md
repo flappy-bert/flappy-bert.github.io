@@ -2,6 +2,32 @@
 
 This document details the technical changes and features implemented to improve the "Flappy Bert" game.
 
+## v0.2 — Leaderboard & Quality of Life (July 5, 2026)
+
+### Firebase Firestore Leaderboard
+- Added real-time leaderboard powered by Firebase Firestore, tracking top 5 scores across all players synced via `onSnapshot` listener. Each entry stores `name`, `score`, `mode`, and server-side `timestamp`.
+- Leaderboard table displays Rank (1–5), Name, Score, and Mode columns.
+
+### Pixel-Art Name Entry Dialog
+- Replaced browser `prompt()` with a custom canvas-drawn dialog box: gold "★ NEW HIGH SCORE! ★" title, left-aligned text input with blinking cursor, max 16 characters (A-Z, 0-9, `_`, `-`).
+- Enter to save score, Escape to skip. Dialog only appears if the current score qualifies for the top 5.
+
+### Score Qualification Gate
+- Name dialog suppressed when score doesn't beat any existing top 5 score. Shows "Score X didn't make the top 5!" with the qualifying threshold. R/M keys work immediately — no key-blocking limbo.
+
+### Fixed 60fps Game Loop
+- Replaced `requestAnimationFrame` (frame-rate dependent) with `setTimeout(update, 16)` for a fixed ~60fps loop regardless of display refresh rate. All physics constants unchanged: gravity = 0.4/frame, pipe speed = -2 px/frame.
+
+### Bug Fixes
+- **Game over on mode selection:** `bert.y` was `Infinity` because the first frame after menu had zero delta time from skipped frames during the welcome screen loop. Fixed by using fixed-frame approach instead of delta-time scaling.
+- **Name lost before submission:** `playerNameBuffer` cleared before calling `submitScore()`, so names were always empty. Now captured before clearing and passed directly to `submitScore(name)`.
+- **Controls blocked during name entry:** R/M/B keys bypass the dialog handler after score is submitted or skipped, allowing reset/menu navigation without getting stuck.
+- **Rank showing NaN in leaderboard:** Firebase's `onSnapshot` iterator doesn't pass an index like a normal array — replaced with manual counter (`let i = 0`).
+
+---
+
+## v0.1 — Pixel-Perfect Collision & Game Modes (May 9, 2026)
+
 ## 1. Pixel-Perfect Collision Detection
 The primary request was to fix the hitbox so it matches the exact shape of the figure instead of a simple square.
 
