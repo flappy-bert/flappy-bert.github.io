@@ -614,11 +614,6 @@ function update() {
         const currentScore = Math.floor(score);
         const qualifiesForLeaderboard = db === null || lowestTop5Score === -Infinity || currentScore > lowestTop5Score;
 
-        // If score doesn't qualify, skip name entry entirely so R/M keys work
-        if (!qualifiesForLeaderboard) {
-            scoreSubmitted = true;
-        }
-
         if (!scoreSubmitted && qualifiesForLeaderboard) {
             drawNameDialog();
         } else {
