@@ -46,3 +46,6 @@ The leaderboard requires a Firebase project. If not configured, scores won't sav
 ---
 *"I'm not unlucky, I'm just technically challenged."*
 — **v0.2 Stable Release**
+
+test
+
