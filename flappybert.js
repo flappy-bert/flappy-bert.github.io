@@ -363,8 +363,14 @@ function submitScore(name) {
 function openNameDialog() {
     const dialog = document.getElementById("name-dialog");
     const input = document.getElementById("name-input");
+    // Title says what actually happened: a new #1, or a spot further down the top 5
+    const s = Math.floor(score);
+    const rank = 1 + leaderboardEntries.filter(e => (Number(e.score) || 0) >= s).length;
+    document.querySelector(".name-title").textContent =
+        rank === 1 ? "★ NEW HIGH SCORE! ★" : `★ YOU'RE #${rank} ★`;
     document.getElementById("name-sub").textContent =
-        `${Math.floor(score)} in ${modeInfo(gameMode).label}. Enter your name:`;
+        rank === 1 ? `${s} in ${modeInfo(gameMode).label}. Enter your name:`
+                   : `${s} made the ${modeInfo(gameMode).label} top 5. Enter your name:`;
     input.value = store.get("lastName", "");
     dialog.hidden = false;
     nameDialogOpen = true;
