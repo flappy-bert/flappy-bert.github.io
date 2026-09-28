@@ -1,51 +1,62 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
     <head>
         <meta charset="UTF-8">
-        <meta name="viewport", content="width=device-width, initial-scale=1.0">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+        <meta name="theme-color" content="#eee8aa">
         <title>Flappy Bert</title>
+        <link rel="preload" href="fonts/press-start-2p.woff2" as="font" type="font/woff2" crossorigin>
         <link rel="stylesheet" href="flappybert.css">
-        <!-- Firebase SDK (compat mode) -->
-        <script src="https://www.gstatic.com/firebasejs/11.9.0/firebase-app-compat.js"></script>
-        <script src="https://www.gstatic.com/firebasejs/11.9.0/firebase-firestore-compat.js"></script>
+        <!-- Supabase client (leaderboard). Pinned version; see SETUP.md -->
+        <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"></script>
         <script src="flappybert.js"></script>
     </head>
     <body>
-        <div class="container">            
+        <main class="container">
             <!--GAME-->
-            <div class="item">
-                <canvas id="board"></canvas>  
-            </div>
+            <section class="stage" id="stage">
+                <p class="rotate-hint">↻ Turn your phone sideways for a bigger game</p>
+                <canvas id="board" aria-label="Flappy Bert game"></canvas>
+
+                <!-- Name entry: a real input so phones get a keyboard -->
+                <form class="name-dialog" id="name-dialog" hidden autocomplete="off">
+                    <p class="name-title">★ NEW HIGH SCORE! ★</p>
+                    <p class="name-sub" id="name-sub">Enter your name</p>
+                    <input id="name-input" type="text" maxlength="16" spellcheck="false"
+                           autocapitalize="characters" enterkeyhint="done" aria-label="Your name">
+                    <p class="name-hint">Max 16 chars · A-Z 0-9 _ -</p>
+                    <div class="name-actions">
+                        <button type="submit" id="name-save">Save</button>
+                        <button type="button" id="name-skip">Skip</button>
+                    </div>
+                </form>
+            </section>
+
             <!--LEADERBOARD-->
-            <div class="item">
-                 <div class="table-container">  
-                    <h2>Leader Board</h2>        
-                        <table id="leaderboard">
-                            <thead>
-                                <tr>
-                                    <th>Rank</th>
-                                    <th>Name</th>
-                                    <th>Score</th>
-                                    <th>Mode</th>
-                                </tr>
-                            </thead>
-                            <tbody id="leaderboard-body">
-                                <tr><td colspan="4" style="text-align:center;">Loading...</td></tr>                
-                            </tbody>
-                        </table>
+            <aside class="side">
+                <div class="table-container">
+                    <h2>Leader Board</h2>
+                    <label class="mode-pick">Mode
+                        <select id="leaderboard-mode"></select>
+                    </label>
+                    <table id="leaderboard">
+                        <thead>
+                            <tr><th>Rank</th><th>Name</th><th>Score</th></tr>
+                        </thead>
+                        <tbody id="leaderboard-body">
+                            <tr><td colspan="3">Loading...</td></tr>
+                        </tbody>
+                    </table>
                 </div>
                 <h3>Controls</h3>
-                 <ul>
-                  <li>1: Classic | 2: Bad Luck</li>
-                  <li>3: Turbo   | 4: Night</li>
-                  <li>5: Giant   | 6: Zen (Coins)</li>
-                  <br>
-                  <li>Jump = "Spacebar" , "X", "ArrowUp"</li>
-                  <li>Reset Game = "R" </li>
-                  <li>Back to Menu = "M" </li>
-                   <li>Hitbox borders = "B"</li>
-                 </ul>
-           </div>
-    </div>
- </body>
+                <ul class="controls">
+                    <li>Mode: tap it or <kbd>1</kbd>–<kbd>8</kbd></li>
+                    <li>Flap: tap, <kbd>Space</kbd> <kbd>X</kbd> <kbd>↑</kbd></li>
+                    <li>Pause <kbd>P</kbd> · Mute <kbd>N</kbd> (or the ⏸ 🔊 buttons)</li>
+                    <li>Retry <kbd>R</kbd> · Menu <kbd>M</kbd></li>
+                    <li>Hitboxes <kbd>B</kbd> · Mask <kbd>V</kbd></li>
+                </ul>
+            </aside>
+        </main>
+    </body>
 </html>

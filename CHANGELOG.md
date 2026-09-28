@@ -2,6 +2,60 @@
 
 This document details the technical changes and features implemented to improve the "Flappy Bert" game.
 
+## v0.3 — Fixes, Mobile, New Modes & Polish (September 2026)
+
+### Leaderboard: Firebase → Supabase
+- **Moved the leaderboard to Supabase** (free Postgres). Setup steps in `SETUP.md`, table and rules in `supabase-setup.sql`. Old Firebase scores are not carried over.
+- **Server-verified scores.** Browsers can't write to the leaderboard at all. A game gets a one-time ticket from the database on the first flap (`start_run`), and `submit_score` checks the ticket is real and unused, that the pipes and coins claimed were possible in the time that really passed (using the game's fixed scroll speed and spawn spacing, including Turbo's acceleration), that score = pipes + coins, and that name and mode are valid. Tickets are burned even on rejection, so fake scores can't be retried lower. 30 games per minute per player (hashed IP). Nobody can edit or delete scores from the browser. Tested against a real PostgreSQL with both cheating attempts and bot-played games.
+- **Fixed HTML injection in the leaderboard.** Names were written with `innerHTML`, so a crafted entry could run script on every visitor's page. Rows are now built with `textContent`, and names/scores are cleaned on read as well as on write.
+- **One top 5 per mode**, with a mode picker above the table that follows the mode you're playing. Live updates via Supabase Realtime, with a 60-second refresh as a backup.
+- **Fixed qualification with fewer than 5 entries.** Previously you had to beat the lowest listed score even when the table had empty spots.
+- Failed saves show "Couldn't save score" instead of claiming success; the game runs normally if the leaderboard is offline or not set up yet.
+- When the game runs as a published claude.ai artifact it uses that page's built-in database instead, so the preview link has a working leaderboard too.
+
+### Bug Fixes
+- **V key now works** (it was documented but missing): shows the green pixel collision mask on Bert and the pipes.
+- **M (menu) now clears coins and all other round state**, so leftovers no longer carry into the next game.
+- **True fixed timestep.** `setTimeout(16)` drifted and ran slow when the browser throttled it. The loop now uses `requestAnimationFrame` with a 60-steps-per-second accumulator: same speed on 60/120/144Hz screens, same physics numbers as v0.2.
+- **Pipes and coins spawn by distance travelled**, not by `setInterval`, so spacing stays right in Turbo and after lag. Spawners no longer run while the tab is hidden.
+- Holding the flap key no longer auto-repeats flaps; Space/↑ no longer scroll the page.
+- Score is now whole numbers (1 per pipe pair instead of 0.5 per pipe).
+- Terminal fall speed added so very long drops stay readable.
+- Removed dead code (`tableData`, unused `coin` object, commented-out resize) and fixed the malformed viewport meta tag.
+
+### Mobile
+- Canvas scales to any screen (internal resolution stays 1080×640); on phones held sideways it fits the screen height.
+- **Tap a menu button to pick any mode** (was: any tap started Classic). Retry/Menu buttons on the game-over screen are tappable.
+- **Name entry uses a real text field**, so phones get their keyboard. Your last name is remembered.
+- Page no longer blocks scrolling/zooming outside the game (`touch-action: none` on the canvas only).
+- Auto-pause when the tab is hidden or the phone is locked.
+- "Turn your phone sideways" hint in portrait.
+- Page text stays dark on phones in dark mode (it was turning white on the light background).
+
+### New Gameplay
+- **7: Wobble** — pipe pairs drift up and down.
+- **8: Flip** — tapping flips gravity (Bert turns upside-down); floor and ceiling are both deadly. Collision uses a flipped pixel mask.
+- **Get-ready state**: Bert hovers until your first flap, with the mode name and a one-line tip.
+- **Pause** with P or Esc (tap to resume).
+- **Personal bests per mode** saved on the device, shown in the HUD, on menu buttons, and on the game-over screen.
+
+### Visual & Sound Polish
+- Unused sounds are now wired in: `sfx_point` (pipe passed / coin collected), `sfx_die`, `sfx_swooshing` (menu transitions).
+- Mute toggle (N), remembered between visits.
+- Hit feedback: screen shake, white flash, and Bert tumbles off-screen before the game-over panel.
+- Coin sparkles and floating "+1" text.
+- New game-over panel (score, mode, best, leaderboard status, Retry/Menu buttons) over the dimmed scene instead of a blank screen.
+- Menu redesigned as a two-column grid with "NEW" tags and bests; hover highlight for mouse users.
+- **Pixel font** (Press Start 2P, bundled in `fonts/`, SIL Open Font License) for the game and page headings.
+- **Medals** on the game-over screen: bronze 10+, silver 20+, gold 30+, platinum 50+.
+- **On-screen pause and mute buttons** (top-right), plus Resume/Menu buttons on the pause screen, so phones get every control.
+- Animated menu: title drops in and waves, buttons slide in, hover lift; game-over panel slides down.
+- Dust puffs on every flap, score "bump" when you score, glowing coins, soft vignette, fade between screens.
+- Page restyled: pixel-grid background, hard drop shadows, medal colours for the top 3, keycap-style controls.
+- HUD text outlined so it's readable on any part of the background; background is now drawn on the canvas (so it shakes and dims with the scene).
+
+---
+
 ## v0.2 — Leaderboard & Quality of Life (July 5, 2026)
 
 ### Firebase Firestore Leaderboard
