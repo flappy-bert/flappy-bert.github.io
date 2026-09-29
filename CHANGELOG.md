@@ -24,6 +24,7 @@ This document details the technical changes and features implemented to improve 
 - Removed dead code (`tableData`, unused `coin` object, commented-out resize) and fixed the malformed viewport meta tag.
 
 ### Mobile
+- **Much smoother on phones.** Images are pre-shrunk once instead of every frame (Bert and the coin were 500×500 drawn at ~50px), outlined text is drawn once and reused, the vignette is baked into the background, Night mode uses one pre-made spotlight instead of full-screen blending, the canvas is opaque, and sound effects play through Web Audio (restarting `<audio>` on every flap stutters on iPhones). On a 6× throttled CPU: Classic ~35 → ~57 fps, Night ~15 → ~57 fps.
 - Canvas scales to any screen (internal resolution stays 1080×640); on phones held sideways it fits the screen height.
 - **Tap a menu button to pick any mode** (was: any tap started Classic). Retry/Menu buttons on the game-over screen are tappable.
 - **Name entry uses a real text field**, so phones get their keyboard. Your last name is remembered.

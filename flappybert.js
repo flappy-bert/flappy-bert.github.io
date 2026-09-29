@@ -121,8 +121,40 @@ const backgroundMusic = new Audio("./sounds/bgm_mario.mp3");
 backgroundMusic.loop = true;
 backgroundMusic.volume = 0.5;
 
+// Sound effects play through Web Audio: restarting an <audio> element on every flap
+// stutters on iPhones. The <audio> elements above are only the fallback.
+let audioCtx = null;
+let sfxGain = null;
+const sfxBuffers = {};
+
+function unlockAudio() {
+    if (!audioCtx) {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return;
+        audioCtx = new AC();
+        sfxGain = audioCtx.createGain();
+        sfxGain.connect(audioCtx.destination);
+        for (const [name, el] of Object.entries(sounds)) {
+            fetch(el.src)
+                .then(r => r.arrayBuffer())
+                .then(data => audioCtx.decodeAudioData(data))
+                .then(buffer => { sfxBuffers[name] = buffer; })
+                .catch(() => { /* the <audio> fallback stays in use for this sound */ });
+        }
+    }
+    if (audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
+}
+
 function playSound(name) {
     if (muted || !sounds[name]) return;
+    const buffer = sfxBuffers[name];
+    if (buffer && audioCtx && audioCtx.state === "running") {
+        const src = audioCtx.createBufferSource();
+        src.buffer = buffer;
+        src.connect(sfxGain);
+        src.start();
+        return;
+    }
     const s = sounds[name];
     s.currentTime = 0;
     s.play().catch(() => {});   // browsers reject play() before the first user gesture
@@ -494,7 +526,8 @@ window.onload = function () {
     board = document.getElementById("board");
     board.width = boardWidth;
     board.height = boardHeight;
-    context = board.getContext("2d");
+    // Opaque canvas: the background is always drawn, so the browser can skip blending with the page
+    context = board.getContext("2d", { alpha: false });
 
     const toLoad = {
         bert0: "./img/bertAnimation/flappybert0.png",
@@ -653,6 +686,42 @@ function step() {
 // =============================================================================
 const FONT = "'Press Start 2P', 'Courier New', monospace";
 
+// ---- Caches: phones are slow at shrinking big images and outlining text every
+// frame, so both are drawn once into small canvases and reused.
+const spriteCache = new WeakMap();
+
+/** The image pre-scaled to w x h (made once, then reused). */
+function sprite(img, w, h) {
+    if (!img || !img.naturalWidth) return null;
+    w = Math.max(1, Math.round(w));
+    h = Math.max(1, Math.round(h));
+    let sizes = spriteCache.get(img);
+    if (!sizes) spriteCache.set(img, sizes = new Map());
+    const key = w + "x" + h;
+    let c = sizes.get(key);
+    if (!c) {
+        c = document.createElement("canvas");
+        c.width = w;
+        c.height = h;
+        const ctx = c.getContext("2d");
+        ctx.imageSmoothingQuality = "high";
+        ctx.drawImage(img, 0, 0, w, h);
+        sizes.set(key, c);
+    }
+    return c;
+}
+
+function drawSprite(img, x, y, w, h) {
+    const c = sprite(img, w, h);
+    if (c) context.drawImage(c, Math.round(x), Math.round(y));
+}
+
+const textCache = new Map();
+if (document.fonts) {
+    // Re-render cached text once the pixel font has arrived
+    document.fonts.addEventListener("loadingdone", () => textCache.clear());
+}
+
 function fillScreen(color) {
     context.fillStyle = color;
     context.fillRect(-20, -20, boardWidth + 40, boardHeight + 40);   // overscan for shake
@@ -663,9 +732,8 @@ function render() {
     context.clearRect(0, 0, boardWidth, boardHeight);
     if (shake > 0) context.translate((Math.random() - 0.5) * shake * 2, (Math.random() - 0.5) * shake * 2);
 
-    if (images.background && images.background.naturalWidth) {
-        context.drawImage(images.background, -20, -20, boardWidth + 40, boardHeight + 40);
-    }
+    if (backdrop) context.drawImage(backdrop, -20, -20);
+    else { context.fillStyle = "#6b8fa3"; context.fillRect(0, 0, boardWidth, boardHeight); }
 
     if (state === "menu") {
         drawMenu();
@@ -674,7 +742,6 @@ function render() {
         if (gameMode === "night") drawNightMask();
         drawParticles();
         drawHud();
-        if (vignette) context.drawImage(vignette, -20, -20);
         if (state === "ready") drawReadyHint();
         if (paused) drawPaused();
         if (state === "over") drawGameOver();
@@ -687,7 +754,7 @@ function render() {
 
 function drawWorld() {
     for (const pipe of pipeArray) {
-        context.drawImage(pipe.isTop ? images.topPipe : images.bottomPipe, pipe.x, pipe.y, pipe.width, pipe.height);
+        drawSprite(pipe.isTop ? images.topPipe : images.bottomPipe, pipe.x, pipe.y, pipe.width, pipe.height);
         if (isMaskViewOn) context.drawImage(pipe.isTop ? topPipeView : bottomPipeView, pipe.x, pipe.y);
         if (isBordersOn) {
             context.strokeStyle = "red";
@@ -700,19 +767,20 @@ function drawWorld() {
     for (const c of coinArray) {
         if (c.collected) continue;
         const w = c.width * spin;
-        if (coinGlow) context.drawImage(coinGlow, c.x - 30, c.y - 30);
-        context.drawImage(images.coin, c.x + (c.width - w) / 2, c.y, w, c.height);
+        if (coinGlow) context.drawImage(coinGlow, Math.round(c.x - 30), Math.round(c.y - 30));
+        const coinSprite = sprite(images.coin, c.width, c.height);
+        if (coinSprite && w >= 1) context.drawImage(coinSprite, Math.round(c.x + (c.width - w) / 2), Math.round(c.y), w, c.height);
     }
 
     const img = bertImgs[bertFrame];
     if (img) {
         context.save();
         if (gravityDir < 0) {                     // upside-down while gravity is flipped
-            context.translate(bert.x, bert.y + bert.height);
+            context.translate(Math.round(bert.x), Math.round(bert.y + bert.height));
             context.scale(1, -1);
-            context.drawImage(img, 0, 0, bert.width, bert.height);
+            drawSprite(img, 0, 0, bert.width, bert.height);
         } else {
-            context.drawImage(img, bert.x, bert.y, bert.width, bert.height);
+            drawSprite(img, bert.x, bert.y, bert.width, bert.height);
         }
         context.restore();
         const m = bertMasks[bertFrame];
@@ -725,34 +793,57 @@ function drawWorld() {
     }
 }
 
+const NIGHT_R = 220;
+
 function drawNightMask() {
-    const cx = bert.x + bert.width / 2, cy = bert.y + bert.height / 2;
-    context.save();
-    context.globalCompositeOperation = "destination-in";
-    const g = context.createRadialGradient(cx, cy, 60, cx, cy, 220);
-    g.addColorStop(0, "rgba(0,0,0,1)");
-    g.addColorStop(1, "rgba(0,0,0,0.1)");
-    fillScreen(g);
-    context.globalCompositeOperation = "destination-over";
-    fillScreen("rgba(0,0,0,0.95)");
-    context.restore();
+    // Pre-made spotlight around Bert, plus solid darkness around it
+    const x0 = Math.round(bert.x + bert.width / 2 - NIGHT_R);
+    const y0 = Math.round(bert.y + bert.height / 2 - NIGHT_R);
+    const d = NIGHT_R * 2;
+    if (nightSpot) context.drawImage(nightSpot, x0, y0);
+    context.fillStyle = "rgba(0,0,0,0.9)";
+    const L = -20, T = -20, W = boardWidth + 40, H = boardHeight + 40;
+    context.fillRect(L, T, W, Math.max(0, y0 - T));                          // above
+    context.fillRect(L, y0 + d, W, Math.max(0, T + H - (y0 + d)));           // below
+    context.fillRect(L, y0, Math.max(0, x0 - L), d);                          // left
+    context.fillRect(x0 + d, y0, Math.max(0, L + W - (x0 + d)), d);           // right
 }
 
 function outlinedText(text, x, y, fill, font, align = "left") {
-    context.font = font;
-    context.textAlign = align;
-    context.lineWidth = 6;
-    context.lineJoin = "round";
-    context.strokeStyle = "black";
-    context.strokeText(text, x, y);
-    context.fillStyle = fill;
-    context.fillText(text, x, y);
+    text = String(text);
+    const key = text + "|" + fill + "|" + font;
+    let t = textCache.get(key);
+    if (!t) {
+        if (textCache.size > 300) textCache.clear();
+        const size = parseInt((font.match(/(\d+)px/) || [0, 20])[1], 10);
+        const pad = 6;
+        context.font = font;
+        const w = Math.ceil(context.measureText(text).width);
+        const c = document.createElement("canvas");
+        c.width = w + pad * 2;
+        c.height = Math.ceil(size * 1.5) + pad * 2;
+        const ctx = c.getContext("2d");
+        ctx.font = font;
+        ctx.textBaseline = "alphabetic";
+        ctx.lineWidth = 6;
+        ctx.lineJoin = "round";
+        ctx.strokeStyle = "black";
+        const baseline = pad + Math.ceil(size * 1.1);
+        ctx.strokeText(text, pad, baseline);
+        ctx.fillStyle = fill;
+        ctx.fillText(text, pad, baseline);
+        t = { c, w, pad, baseline };
+        textCache.set(key, t);
+    }
+    const dx = align === "center" ? x - t.w / 2 : align === "right" ? x - t.w : x;
+    context.drawImage(t.c, Math.round(dx - t.pad), Math.round(y - t.baseline));
+    context.textAlign = align;   // callers used to rely on this side effect
 }
 
 function drawHud() {
     // Score with a little bump each time it goes up
     const pop = 1 + scorePop * 0.35;
-    context.drawImage(images.coin, 14, 14, 72, 72);
+    drawSprite(images.coin, 14, 14, 72, 72);
     context.save();
     context.translate(100, 66);
     context.scale(pop, pop);
@@ -839,7 +930,6 @@ function easeOut(t) { return 1 - Math.pow(1 - t, 3); }
 
 function drawMenu() {
     fillScreen("rgba(0,0,0,0.45)");
-    if (vignette) context.drawImage(vignette, -20, -20);
 
     // Title: drops in, then bobs; each letter waves slightly
     const drop = easeOut(Math.min(1, screenT / 30));
@@ -858,7 +948,7 @@ function drawMenu() {
         tx += context.measureText(ch).width;
     }
     const bob = Math.sin(frameCount / 15) * 8;
-    if (bertImgs[bertFrame]) context.drawImage(bertImgs[bertFrame], tx + 16, 38 + bob - (1 - drop) * 140, 76, 76);
+    if (bertImgs[bertFrame]) drawSprite(bertImgs[bertFrame], tx + 16, 38 + bob - (1 - drop) * 140, 76, 76);
 
     // Buttons slide in one after another
     menuButtons.forEach((b, i) => {
@@ -897,7 +987,7 @@ function drawMedal(cx, cy, medal) {
         context.fillText("10+", cx, cy + 5);
         return;
     }
-    if (bertImgs[0]) context.drawImage(bertImgs[0], cx - 26, cy - 28, 52, 52);
+    if (bertImgs[0]) drawSprite(bertImgs[0], cx - 26, cy - 28, 52, 52);
     // travelling shine
     const a = (frameCount / 40) % (Math.PI * 2);
     context.fillStyle = "rgba(255,255,255,0.8)";
@@ -1025,20 +1115,26 @@ function drawCornerButtons() {
 }
 
 // ---- Pre-rendered effects ------------------------------------------------------
-let vignette = null;
+let backdrop = null;     // kitchen background with the vignette baked in
 let coinGlow = null;
+let nightSpot = null;    // Night mode's flashlight
 
 function buildEffects() {
-    vignette = document.createElement("canvas");
-    vignette.width = boardWidth + 40;
-    vignette.height = boardHeight + 40;
-    let ctx = vignette.getContext("2d");
-    const g = ctx.createRadialGradient(vignette.width / 2, vignette.height / 2, boardHeight * 0.45,
-                                       vignette.width / 2, vignette.height / 2, boardWidth * 0.7);
+    backdrop = document.createElement("canvas");
+    backdrop.width = boardWidth + 40;
+    backdrop.height = boardHeight + 40;
+    let ctx = backdrop.getContext("2d", { alpha: false });
+    ctx.fillStyle = "#6b8fa3";
+    ctx.fillRect(0, 0, backdrop.width, backdrop.height);
+    if (images.background && images.background.naturalWidth) {
+        ctx.drawImage(images.background, 0, 0, backdrop.width, backdrop.height);
+    }
+    const g = ctx.createRadialGradient(backdrop.width / 2, backdrop.height / 2, boardHeight * 0.45,
+                                       backdrop.width / 2, backdrop.height / 2, boardWidth * 0.7);
     g.addColorStop(0, "rgba(0,0,0,0)");
     g.addColorStop(1, "rgba(0,0,0,0.45)");
     ctx.fillStyle = g;
-    ctx.fillRect(0, 0, vignette.width, vignette.height);
+    ctx.fillRect(0, 0, backdrop.width, backdrop.height);
 
     coinGlow = document.createElement("canvas");
     coinGlow.width = coinGlow.height = COIN_SIZE + 60;
@@ -1049,6 +1145,16 @@ function buildEffects() {
     cg.addColorStop(1, "rgba(255,215,0,0)");
     ctx.fillStyle = cg;
     ctx.fillRect(0, 0, coinGlow.width, coinGlow.height);
+
+    nightSpot = document.createElement("canvas");
+    nightSpot.width = nightSpot.height = NIGHT_R * 2;
+    ctx = nightSpot.getContext("2d");
+    const ng = ctx.createRadialGradient(NIGHT_R, NIGHT_R, 0, NIGHT_R, NIGHT_R, NIGHT_R);
+    ng.addColorStop(0, "rgba(0,0,0,0)");
+    ng.addColorStop(60 / NIGHT_R, "rgba(0,0,0,0)");     // clear circle around Bert
+    ng.addColorStop(1, "rgba(0,0,0,0.9)");
+    ctx.fillStyle = ng;
+    ctx.fillRect(0, 0, nightSpot.width, nightSpot.height);
 }
 
 // ---- Particles --------------------------------------------------------------
@@ -1284,6 +1390,7 @@ function applyBadLuck() {
 // Input
 // =============================================================================
 function onKeyDown(e) {
+    unlockAudio();
     if (nameDialogOpen) return;            // the dialog's input handles its own keys
     const code = e.code;
     const isFlapKey = code === "Space" || code === "ArrowUp" || code === "KeyX";
@@ -1326,6 +1433,7 @@ function hit(b, p) {
 }
 
 function onPointerDown(e) {
+    unlockAudio();
     if (nameDialogOpen) return;
     e.preventDefault();
     const p = toCanvasPoint(e);
